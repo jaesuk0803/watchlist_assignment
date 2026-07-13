@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:watchlist_assignment/features/stock/data/repositories/stock_repository_impl.dart';
-import 'package:watchlist_assignment/features/stock/domain/entities/connection_status.dart';
 import 'package:watchlist_assignment/features/stock/domain/entities/stock_quote.dart';
 import 'package:watchlist_assignment/features/stock/domain/entities/trade_status.dart';
 import 'package:watchlist_assignment/seed/market_models.dart';
@@ -44,26 +43,27 @@ void main() {
     repo.dispose();
   });
 
-  test('스트림 에러가 와도 구독이 유지되고 다음 배치로 복구된다', () async {
+  test('스트림 에러가 와도 구독이 유지되고 에러는 원시로 통과된다', () async {
+    // repository는 에러를 삼키지 않고 errors()로 통과시키되 구독은 유지한다.
+    // (정지 감지/디바운스 복구 같은 상태 정책은 ConnectionMonitor의 책임)
     final fake = FakeTickSource([snap('000001', 1000)]);
     final repo = StockRepositoryImpl(fake);
     repo.loadUniverse();
 
     final received = <StockQuote>[];
-    final conn = <ConnectionStatus>[];
+    final errors = <Object>[];
     repo.quoteBatches().listen((b) => received.addAll(b));
-    repo.connection().listen(conn.add);
+    repo.errors().listen(errors.add);
 
     fake.emit([tick('000001', 1100, 100)]);
     await flush();
     fake.emitError(Exception('일시적 오류'));
     await flush();
-    fake.emit([tick('000001', 1200, 200)]); // 에러 후에도 정상 처리
+    fake.emit([tick('000001', 1200, 200)]); // 에러 후에도 구독 유지 → 정상 처리
     await flush();
 
-    expect(conn, contains(ConnectionStatus.unstable));
-    expect(conn.last, ConnectionStatus.live); // 복구
-    expect(received.map((q) => q.price).toList(), [1100, 1200]);
+    expect(errors, hasLength(1)); // 에러가 통과됨
+    expect(received.map((q) => q.price).toList(), [1100, 1200]); // 구독 생존
 
     repo.dispose();
   });

@@ -1,4 +1,3 @@
-import '../entities/connection_status.dart';
 import '../entities/stock_meta.dart';
 import '../entities/stock_quote.dart';
 
@@ -16,7 +15,10 @@ class UniverseData {
 /// - feed를 **단 한 번만** 구독 (broadcast 중복 소비 방지)
 /// - **정합성 경계**: timestampMs 기준 역순 tick 폐기
 /// - raw `QuoteTick` → 도메인 `StockQuote` 매핑(등락률/등락폭 계산 포함)
-/// - 스트림 에러 흡수 후 [connection] 으로 노출(구독 유지)
+/// - 스트림 에러를 삼키지 않고 [errors] 로 원시 통과(구독은 유지)
+///
+/// 연결 상태 "정책"(정지 감지·디바운스 복구)은 프레임 루프를 가진 application
+/// 계층(ConnectionMonitor)이 판단한다. repository는 raw 신호만 노출한다.
 ///
 /// application 계층은 이 인터페이스에만 의존한다(의존성 역전).
 abstract class StockRepository {
@@ -26,8 +28,8 @@ abstract class StockRepository {
   /// 정합성 검증을 통과한 시세 배치 스트림(도메인 타입).
   Stream<List<StockQuote>> quoteBatches();
 
-  /// 연결/에러 상태 스트림.
-  Stream<ConnectionStatus> connection();
+  /// feed에서 발생한 원시 스트림 에러(구독은 유지된다). 상태 해석은 소비자 몫.
+  Stream<Object> errors();
 
   /// 실시간 수신 시작(벽시계). 벤치마크에서는 사용하지 않는다.
   void start();

@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../domain/entities/connection_status.dart';
+import '../domain/entities/stock_quote.dart';
 import '../domain/repositories/stock_repository.dart';
 import 'search/symbol_search_index.dart';
+import 'services/connection_monitor.dart';
 import 'services/frame_coalescer.dart';
 import 'store/quote_store.dart';
 import 'summary_state.dart';
@@ -42,8 +44,10 @@ class StockController {
 
   FrameCoalescer? _coalescer;
   StreamSubscription? _batchSub;
-  StreamSubscription? _connSub;
+  StreamSubscription? _errorSub;
 
+  /// 연결 상태 판정(정지 감지·디바운스 복구) — 타이머 없이 프레임/배치 카운트로.
+  final ConnectionMonitor _monitor = ConnectionMonitor();
   ConnectionStatus _connection = ConnectionStatus.live;
   bool _connectionDirty = false;
 
@@ -52,12 +56,22 @@ class StockController {
     final data = _repo.loadUniverse();
     store.initialize(data.metas, data.initialQuotes);
     searchIndex = SymbolSearchIndex(data.metas);
-    _batchSub = _repo.quoteBatches().listen(store.applyBatch);
-    _connSub = _repo.connection().listen((c) {
-      _connection = c;
-      _connectionDirty = true;
-    });
+    _batchSub = _repo.quoteBatches().listen(_onBatch);
+    _errorSub = _repo.errors().listen(_onError);
     _publishSummary();
+  }
+
+  void _onBatch(List<StockQuote> batch) {
+    store.applyBatch(batch);
+    _applyConnection(_monitor.onBatch());
+  }
+
+  void _onError(Object error) => _applyConnection(_monitor.onError());
+
+  void _applyConnection(ConnectionStatus? next) {
+    if (next == null) return;
+    _connection = next;
+    _connectionDirty = true;
   }
 
   /// 실시간(벽시계) 수신 시작. 프레임 정렬 flush를 붙인다.
@@ -90,10 +104,20 @@ class StockController {
   void resumeFrameListeners() => _listenersPaused = false;
 
   void _onFrame() {
+    // 프레임 하트비트 재사용: 마지막 배치 이후 경과 프레임으로 정지를 감지한다.
+    _applyConnection(_monitor.onFrame());
+
     // 목록이 상세에 가려진 동안엔 dirty를 소비하지 않고 그대로 둔다.
     // (소비해버리면 복귀 시 그 사이 변경분이 유실되어 행이 stale해짐)
     // 상세는 자체 Ticker로 갱신하므로 목록 갱신 비용만 멈춘다.
-    if (_listenersPaused) return;
+    // 단, 연결 상태 변화는 가려진 중에도 요약에 반영해 둔다(복귀 시 정확).
+    if (_listenersPaused) {
+      if (_connectionDirty) {
+        _publishSummary();
+        _connectionDirty = false;
+      }
+      return;
+    }
 
     final dirty = store.takeDirty();
     if (dirty.isNotEmpty) {
@@ -150,7 +174,7 @@ class StockController {
   void dispose() {
     _coalescer?.dispose();
     _batchSub?.cancel();
-    _connSub?.cancel();
+    _errorSub?.cancel();
     summary.dispose();
     filter.dispose();
     _repo.dispose();

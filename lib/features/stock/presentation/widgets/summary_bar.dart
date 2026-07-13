@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../application/stock_controller.dart';
 import '../../application/summary_state.dart';
+import '../../domain/entities/connection_status.dart';
 import '../formatters.dart';
 
 /// 요약 영역: 표시 종목 수 + 시총 합계 + 연결 상태 배너.
@@ -21,7 +22,8 @@ class SummaryBar extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (summary.connection.isUnstable) const _UnstableBanner(),
+            if (summary.connection.hasIssue)
+              _ConnectionBanner(status: summary.connection),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: Row(
@@ -66,21 +68,31 @@ class _Metric extends StatelessWidget {
   }
 }
 
-class _UnstableBanner extends StatelessWidget {
-  const _UnstableBanner();
+/// 연결 상태 배너. 두 실패 모드를 다른 색/문구로 구분한다.
+/// - unstable(주황): 에러 이벤트 발생, 안정 구간 확보되면 자동 복구
+/// - stalled(빨강): 일정 시간 배치 미수신(조용한 정지) → 더 강한 경고
+class _ConnectionBanner extends StatelessWidget {
+  const _ConnectionBanner({required this.status});
+
+  final ConnectionStatus status;
 
   @override
   Widget build(BuildContext context) {
+    final stalled = status.isStalled;
+    final bg = stalled ? const Color(0xFFFDECEA) : const Color(0xFFFFF3E0);
+    final fg = stalled ? const Color(0xFFC62828) : const Color(0xFFE65100);
+    final icon = stalled ? Icons.cloud_off : Icons.wifi_tethering_error;
+    final text = stalled ? '실시간 수신 지연 · 재연결 대기 중' : '연결 불안정 · 자동 복구 중';
+
     return Container(
       width: double.infinity,
-      color: const Color(0xFFFFF3E0),
+      color: bg,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.wifi_tethering_error, size: 14, color: Color(0xFFE65100)),
-          SizedBox(width: 6),
-          Text('연결 불안정 · 자동 복구 중',
-              style: TextStyle(fontSize: 12, color: Color(0xFFE65100))),
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 6),
+          Text(text, style: TextStyle(fontSize: 12, color: fg)),
         ],
       ),
     );
