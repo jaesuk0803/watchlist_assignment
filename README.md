@@ -27,7 +27,7 @@ flutter run --profile --dart-define=CANDIDATE=c
 
 ```bash
 flutter analyze          # No issues found!
-flutter test             # 회귀 테스트 + 벤치마크 (21 tests, all passed)
+flutter test             # 회귀 테스트 + 벤치마크 (27 tests, all passed)
 flutter test test/perf_benchmark_test.dart   # A/B/C 재현 가능한 벤치마크
 ```
 
